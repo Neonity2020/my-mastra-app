@@ -17,7 +17,8 @@
   "scripts": {
     "dev": "mastra dev",
     "build": "mastra build",
-    "start": "mastra start"
+    "start": "mastra start",
+    "agent": "bun run src/cli/coding-agent.ts"
   },
   "dependencies": {
     "@mastra/core": "^1.35.0",

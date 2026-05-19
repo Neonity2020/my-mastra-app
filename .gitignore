@@ -42,3 +42,6 @@ dist
 *.db-*
 .netlify
 .vercel
+site/.next
+src/mastra/public/*.duckdb
+src/mastra/public/*.duckdb.wal

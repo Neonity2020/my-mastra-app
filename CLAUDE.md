@@ -1,111 +1,60 @@
----
-description: Use Bun instead of Node.js, npm, pnpm, or vite.
-globs: "*.ts, *.tsx, *.html, *.css, *.js, *.jsx, package.json"
-alwaysApply: false
----
+# CLAUDE.md
 
-Default to using Bun instead of Node.js.
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-- Use `bun <file>` instead of `node <file>` or `ts-node <file>`
-- Use `bun test` instead of `jest` or `vitest`
-- Use `bun build <file.html|file.ts|file.css>` instead of `webpack` or `esbuild`
-- Use `bun install` instead of `npm install` or `yarn install` or `pnpm install`
-- Use `bun run <script>` instead of `npm run <script>` or `yarn run <script>` or `pnpm run <script>`
-- Use `bunx <package> <command>` instead of `npx <package> <command>`
-- Bun automatically loads .env, so don't use dotenv.
+## Project
 
-## APIs
+A **Mastra** (TypeScript) application. Runtime is Bun; `mastra dev` itself runs under Node (`engines.node >=22.13.0`). Before doing anything Mastra-specific, load the `mastra` skill at `.agents/skills/mastra/SKILL.md` — Mastra's APIs change frequently across versions and cached knowledge will be wrong.
 
-- `Bun.serve()` supports WebSockets, HTTPS, and routes. Don't use `express`.
-- `bun:sqlite` for SQLite. Don't use `better-sqlite3`.
-- `Bun.redis` for Redis. Don't use `ioredis`.
-- `Bun.sql` for Postgres. Don't use `pg` or `postgres.js`.
-- `WebSocket` is built-in. Don't use `ws`.
-- Prefer `Bun.file` over `node:fs`'s readFile/writeFile
-- Bun.$`ls` instead of execa.
+## Commands
 
-## Testing
-
-Use `bun test` to run tests.
-
-```ts#index.test.ts
-import { test, expect } from "bun:test";
-
-test("hello world", () => {
-  expect(1).toBe(1);
-});
+```bash
+bun run dev      # Start Mastra Studio on http://localhost:4111 (long-running; use a separate terminal)
+bun run build    # Production build via `mastra build`
+bun run start    # Run the built server
+bun run agent -- "<prompt>"   # Invoke the coding agent CLI (see below)
 ```
 
-## Frontend
+There is no test runner wired up yet. If you add tests, use `bun test` (see Bun section below).
 
-Use HTML imports with `Bun.serve()`. Don't use `vite`. HTML imports fully support React, CSS, Tailwind.
+### Coding agent CLI
 
-Server:
+`bun run agent` (`src/cli/coding-agent.ts`) is a standalone entry point that imports `mastra` and calls `codingAgent.generate(prompt)`. Prompts come from argv or stdin. Flags: `--json`, `--plain`, `--verbose`, `-h`. Examples:
 
-```ts#index.ts
-import index from "./index.html"
-
-Bun.serve({
-  routes: {
-    "/": index,
-    "/api/users/:id": {
-      GET: (req) => {
-        return new Response(JSON.stringify({ id: req.params.id }));
-      },
-    },
-  },
-  // optional websocket support
-  websocket: {
-    open: (ws) => {
-      ws.send("Hello, world!");
-    },
-    message: (ws, message) => {
-      ws.send(message);
-    },
-    close: (ws) => {
-      // handle close
-    }
-  },
-  development: {
-    hmr: true,
-    console: true,
-  }
-})
+```bash
+bun run agent -- "List the project files and summarize this project"
+echo "Find where codingAgent is registered" | bun run agent
 ```
 
-HTML files can import .tsx, .jsx or .js files directly and Bun's bundler will transpile & bundle automatically. `<link>` tags can point to stylesheets and Bun's CSS bundler will bundle.
+The CLI sets `MASTRA_CLI=true` before importing `mastra` — `src/mastra/index.ts` keys off this to disable observability and the DuckDB observability domain (DuckDB has process-locking that breaks when Studio is already running). **Anything that imports `./mastra` from outside `mastra dev` must set `MASTRA_CLI=true` first**, otherwise it will conflict with a running Studio over `mastra.duckdb`.
 
-```html#index.html
-<html>
-  <body>
-    <h1>Hello, world!</h1>
-    <script type="module" src="./frontend.tsx"></script>
-  </body>
-</html>
-```
+## Architecture
 
-With the following `frontend.tsx`:
+Single Mastra instance in `src/mastra/index.ts` wires together everything; **new agents, tools, workflows, and scorers must be registered here** or they won't be discoverable.
 
-```tsx#frontend.tsx
-import React from "react";
-import { createRoot } from "react-dom/client";
+- **Storage**: `MastraCompositeStore` with `LibSQLStore` (`mastra.db`) as the default and a `DuckDBStore` mounted at the `observability` domain. The DuckDB store is conditionally omitted in CLI mode (see above).
+- **Observability**: `Observability` is also gated on `!isCli`, exporting to both Mastra Storage and Mastra Platform (when `MASTRA_PLATFORM_ACCESS_TOKEN` is set) with `SensitiveDataFilter` redacting passwords/tokens.
+- **Agents**:
+  - `weatherAgent` (`openai/gpt-5-mini`) — uses `weatherTool` and runs three scorers (tool-call accuracy, completeness, LLM-judged translation quality) at 100% sampling. Called by `weatherWorkflow.planActivities` via `mastra.getAgent('weatherAgent')`.
+  - `codingAgent` (`zhipuai-coding-plan/glm-5.1`) — uses `codingTools` and is fetched in the CLI by id via `mastra.getAgentById('coding-agent')`.
+- **Coding tools** (`src/mastra/tools/coding-tools.ts`): `listFiles`, `readFile`, `writeFile`, `searchCode` (ripgrep), `runCommand`. All paths are confined to `process.cwd()` via `resolveWorkspacePath`, hidden dirs and `.git`/`node_modules`/`.mastra`/`.build`/`dist`/`coverage` are skipped by default, and `runCommand` refuses anything matching `\b(rm|sudo|chmod|chown|mkfs|dd)\b`. Preserve these guards when editing.
+- **Workflows**: `weatherWorkflow` chains two `createStep` blocks (`fetchWeather` → `planActivities`) and **must call `.commit()`** before export (see `src/mastra/workflows/weather-workflow.ts:183`).
+- **Scorers**: Two prebuilt (`createToolCallAccuracyScorerCode`, `createCompletenessScorer`) plus a custom `createScorer` pipeline (`preprocess` → `analyze` with `outputSchema` → `generateScore` → `generateReason`) — follow this pattern for new LLM-judged scorers.
 
-// import .css files directly and it works
-import './index.css';
+## Conventions
 
-const root = createRoot(document.body);
+- Always use Zod schemas for tool `inputSchema`/`outputSchema` and step schemas.
+- Don't touch `.env`, `node_modules`, `.git`, or the generated `mastra.db*` / `mastra.duckdb*` files. The duckdb WAL/lock files in particular cause confusing errors if hand-edited.
+- Models are passed as `provider/model` string IDs (e.g. `'openai/gpt-5-mini'`), not constructor objects.
 
-export default function Frontend() {
-  return <h1>Hello, world!</h1>;
-}
+## Bun (default runtime)
 
-root.render(<Frontend />);
-```
+Default to Bun over Node.js — `bun.lock` is the lockfile.
 
-Then, run index.ts
+- `bun <file>` over `node`/`ts-node`; `bun test` over `jest`/`vitest`; `bun install` over `npm`/`yarn`/`pnpm`; `bunx` over `npx`.
+- Bun auto-loads `.env` — don't add `dotenv`.
+- Prefer Bun built-ins: `Bun.serve()` (with routes + WebSockets) over `express`; `bun:sqlite` over `better-sqlite3`; `Bun.redis` over `ioredis`; `Bun.sql` over `pg`/`postgres.js`; built-in `WebSocket` over `ws`; `Bun.file` over `node:fs` read/write; `` Bun.$`...` `` over `execa`.
+- Frontend: use HTML imports with `Bun.serve()` — don't add `vite`. `<script type="module" src="./frontend.tsx">` and `<link>` to CSS work directly; React/Tailwind are supported.
+- Bun docs live in `node_modules/bun-types/docs/**.mdx`.
 
-```sh
-bun --hot ./index.ts
-```
-
-For more information, read the Bun API docs in `node_modules/bun-types/docs/**.mdx`.
+Note: `mastra dev`/`mastra build` themselves invoke a Node-based pipeline (hence `engines.node`), but everything else (scripts, the agent CLI, tests) should go through Bun.

@@ -1,0 +1,62 @@
+@import "tailwindcss";
+
+@theme {
+  --color-matrix: #00ff41;
+  --color-matrix-dim: #00cc33;
+  --color-matrix-bg: #0a0a0a;
+  --color-matrix-card: #111111;
+  --color-matrix-border: #1a3a1a;
+  --color-matrix-code: #0d1f0d;
+  --font-mono: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', ui-monospace, monospace;
+}
+
+@variant dark (&:where(.dark, .dark *));
+
+@layer base {
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--color-matrix) var(--color-matrix-bg);
+  }
+
+  ::-webkit-scrollbar { width: 6px; }
+  ::-webkit-scrollbar-track { background: var(--color-matrix-bg); }
+  ::-webkit-scrollbar-thumb { background: var(--color-matrix); border-radius: 3px; }
+
+  html { scroll-behavior: smooth; scroll-padding-top: 5rem; }
+  ::selection { background: var(--color-matrix); color: black; }
+}
+
+@layer components {
+  .matrix-glow {
+    text-shadow: 0 0 7px var(--color-matrix), 0 0 20px rgba(0, 255, 65, 0.3);
+  }
+  .matrix-glow-subtle {
+    text-shadow: 0 0 5px rgba(0, 255, 65, 0.2);
+  }
+  .code-block {
+    background: var(--color-matrix-code);
+    border: 1px solid var(--color-matrix-border);
+    border-radius: 0.5rem;
+    padding: 1rem 1.25rem;
+    overflow-x: auto;
+    font-size: 0.8125rem;
+    line-height: 1.7;
+  }
+  .nav-link {
+    color: rgba(0, 255, 65, 0.5);
+    transition: all 0.15s;
+  }
+  .nav-link:hover { color: var(--color-matrix); }
+  .trap-card {
+    background: linear-gradient(135deg, rgba(255, 50, 50, 0.05) 0%, rgba(0, 255, 65, 0.03) 100%);
+    border: 1px solid rgba(255, 100, 100, 0.2);
+    border-radius: 0.75rem;
+    padding: 1.5rem;
+  }
+  .check-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.75rem;
+    padding: 0.5rem 0;
+  }
+}
